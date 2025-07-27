@@ -14,7 +14,7 @@ pub fn start(ctx: *Ctx) !void {
         }
         ctx.addr.listen(.{});
     };
-    defer server.stream.close();
+    defer server.deinit();
 
     log.print(.ok, "Server started listening at \x1b[33mhttp://{}\n", .{server.listen_address});
 
@@ -51,32 +51,37 @@ pub fn start(ctx: *Ctx) !void {
 
         log.printVerbose(.ok, "Recieved {} bytes from {}\n", .{ bytes, conn.address });
 
-        serveFile(ctx, &data, &conn) catch |err| log.print(.err, "Error while serving to {}: {any}\n", .{ conn.address, err });
+        serveFile(ctx, &data, &conn) catch |err| log.print(.err, "Error while serving file '{s}' to {}: {any}\n", .{ data.path, conn.address, err });
 
         const time_taken = std.time.milliTimestamp() - accepted_at;
-        log.print(.ok, "Served file in {} ms\n", .{time_taken});
+        log.print(.ok, "Served file '{s}' in {} ms\n", .{ data.path, time_taken });
 
         conn.stream.close();
     }
 }
 
 fn serveFile(ctx: *const Ctx, request: *const HttpData, conn: *const std.net.Server.Connection) !void {
-    const file = fs.getFile(ctx.allocator, ctx, request.path) catch {
-        try serve404(ctx, conn);
+    const fileres = fs.getFile(ctx.allocator, ctx, request.path) catch {
+        try serve404(conn);
         return error.FileNotFound;
     };
-    defer file.deinit();
+    defer fileres.deinit();
 
-    const content = try file.file.readToEndAlloc(ctx.allocator, 10_000_000_000);
+    const content = try fileres.got.file.readToEndAlloc(ctx.allocator, 10_000_000_000);
 
-    const response = try createHttpResponse(ctx.allocator, file.mimetype, content);
+    const response = blk: {
+        if (fileres.redirected) |location| {
+            break :blk try createHttpResponse301(ctx.allocator, location, fileres.got.mimetype, content);
+        }
+        break :blk try createHttpResponse200(ctx.allocator, fileres.got.mimetype, content);
+    };
     defer ctx.allocator.free(response);
 
     const bytes = try conn.stream.write(response);
     log.printVerbose(.ok, "Sent a {} byte response to {}\n", .{ bytes, conn.address });
 }
 
-fn serve404(ctx: *const Ctx, conn: *const std.net.Server.Connection) !void {
+fn serve404(conn: *const std.net.Server.Connection) !void {
     const body =
         \\<!DOCTYPE html>
         \\<html>
@@ -92,10 +97,14 @@ fn serve404(ctx: *const Ctx, conn: *const std.net.Server.Connection) !void {
         \\</html>
     ;
 
-    const response = try createHttpResponse(ctx.allocator, "text/html", body);
-
-    const bytes = try conn.stream.write(response);
-    log.printVerbose(.ok, "Sent a {} byte response to {}\n", .{ bytes, conn.address });
+    try conn.stream.writer().print(
+        \\HTTP/1.1 404 Not Found
+        \\Content-Type: text/html
+        \\Content-Length: {}
+        \\
+        \\{s}
+    , .{ body.len, body });
+    log.printVerbose(.ok, "Sent a 404 response to {}\n", .{conn.address});
 }
 
 fn serve414(conn: *const std.net.Server.Connection) !void {
@@ -107,7 +116,7 @@ fn serve414(conn: *const std.net.Server.Connection) !void {
     log.printVerbose(.ok, "Sent a {} byte response to {}\n", .{ bytes, conn.address });
 }
 
-fn createHttpResponse(allocator: std.mem.Allocator, mimetype: []const u8, body: []const u8) errhandl.AllocError![]u8 {
+fn createHttpResponse200(allocator: std.mem.Allocator, mimetype: []const u8, body: []const u8) errhandl.AllocError![]u8 {
     return std.fmt.allocPrint(allocator,
         \\HTTP/1.1 200 OK
         \\Content-Type: {s}
@@ -115,6 +124,16 @@ fn createHttpResponse(allocator: std.mem.Allocator, mimetype: []const u8, body: 
         \\
         \\{s}
     , .{ mimetype, body.len, body });
+}
+fn createHttpResponse301(allocator: std.mem.Allocator, location: []const u8, mimetype: []const u8, body: []const u8) errhandl.AllocError![]u8 {
+    return std.fmt.allocPrint(allocator,
+        \\HTTP/1.1 301 Moved Permanently 
+        \\Location: /{s}
+        \\Content-Type: {s}
+        \\Content-Length: {}
+        \\
+        \\{s}
+    , .{ location, mimetype, body.len, body });
 }
 
 const std = @import("std");

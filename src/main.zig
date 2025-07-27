@@ -9,7 +9,7 @@ pub fn main() !void {
     if (args.args.log) |loglvl|
         log.loglevel = loglvl;
 
-    var ctx = errhandl.tryAlloc(Ctx, Ctx.fromArgs(allocator, args));
+    var ctx = errhandl.tryAlloc(Ctx, .fromArgs(allocator, args));
     defer ctx.deinit();
 
     args.deinit();

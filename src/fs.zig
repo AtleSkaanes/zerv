@@ -13,35 +13,86 @@ pub const File = struct {
     }
 };
 
-pub fn getFile(allocator: std.mem.Allocator, ctx: *const Ctx, path: []const u8) (error{FileNotFound} || errhandl.AllocError)!File {
-    if (ctx.dir.openDir(path, .{})) |subdir| {
+pub const FileResult = struct {
+    const Self = @This();
+
+    got: File,
+    redirected: ?[]const u8,
+
+    pub fn deinit(self: Self) void {
+        self.got.deinit();
+        if (self.redirected) |path| {
+            self.got.allocator.free(path);
+        }
+    }
+};
+
+pub fn getFile(allocator: std.mem.Allocator, ctx: *const Ctx, path: []const u8) (error{FileNotFound} || errhandl.AllocError)!FileResult {
+    const is_global = std.mem.startsWith(u8, basename(path), "global.") or isFavicon(path);
+
+    const get_dir = if (is_global) ctx.global_dir else ctx.dir;
+
+    const get_path = blk: {
+        if (is_global) {
+            const base = basename(path);
+            if (std.mem.eql(u8, popFileExt(base), "global")) {
+                break :blk base;
+            } else {
+                var parts = std.mem.splitSequence(u8, base, "global.");
+                _ = parts.next() orelse {
+                    break :blk base;
+                };
+                break :blk parts.rest();
+            }
+        } else {
+            break :blk path;
+        }
+    };
+
+    if (get_dir.openDir(get_path, .{})) |subdir| {
         for (ctx.entries) |entry| {
             const f = subdir.openFile(entry, .{}) catch continue;
             const f_name = basename(entry);
             return .{
-                .allocator = allocator,
-                .name = try allocator.dupe(u8, f_name),
-                .mimetype = try getMimeType(allocator, f_name),
-                .file = f,
+                .got = .{
+                    .allocator = allocator,
+                    .name = try allocator.dupe(u8, f_name),
+                    .mimetype = try getMimeType(allocator, f_name),
+                    .file = f,
+                },
+                .redirected = null,
             };
         }
     } else |_| {}
 
-    if (ctx.dir.openFile(path, .{})) |f| {
-        const f_name = basename(path);
+    if (get_dir.openFile(get_path, .{})) |f| {
+        const f_name = basename(get_path);
+        const redir_path: ?[]const u8 = blk: {
+            if (isEntry(ctx.entries, get_path)) {
+                break :blk try allocator.dupe(u8, popPath(get_path) orelse "/");
+            } else if (isHtml(get_path)) {
+                break :blk try allocator.dupe(u8, popFileExt(get_path));
+            } else {
+                break :blk null;
+            }
+        };
+
         return .{
-            .allocator = allocator,
-            .name = try allocator.dupe(u8, f_name),
-            .mimetype = try getMimeType(allocator, f_name),
-            .file = f,
+            .got = .{
+                .allocator = allocator,
+                .name = try allocator.dupe(u8, f_name),
+                .mimetype = try getMimeType(allocator, f_name),
+                .file = f,
+            },
+            .redirected = redir_path,
         };
     } else |_| {}
 
     // look for files that have the basename specified in path, so match "index" to "index.html"
-    const f_name = basename(path);
-    const new_path = popPath(path) orelse ".";
+    const f_name = basename(get_path);
+    const new_path = popPath(get_path) orelse ".";
 
-    if (ctx.dir.openDir(new_path, .{ .iterate = true })) |dir| {
+    if (get_dir.openDir(new_path, .{ .iterate = true })) |dir| {
         var walker = try dir.walk(allocator);
         defer walker.deinit();
 
@@ -57,11 +108,22 @@ pub fn getFile(allocator: std.mem.Allocator, ctx: *const Ctx, path: []const u8) 
 
             if (std.mem.eql(u8, name, f_name)) {
                 const f = dir.openFile(entry.basename, .{}) catch return error.FileNotFound;
+                const redir_path: ?[]const u8 = blk: {
+                    if (isEntry(ctx.entries, entry.basename)) {
+                        break :blk try allocator.dupe(u8, popPath(get_path) orelse "/");
+                    } else {
+                        break :blk null;
+                    }
+                };
+
                 return .{
-                    .allocator = allocator,
-                    .name = try allocator.dupe(u8, entry.basename),
-                    .mimetype = try getMimeType(allocator, entry.basename),
-                    .file = f,
+                    .got = .{
+                        .allocator = allocator,
+                        .name = try allocator.dupe(u8, entry.basename),
+                        .mimetype = try getMimeType(allocator, entry.basename),
+                        .file = f,
+                    },
+                    .redirected = redir_path,
                 };
             }
         }
@@ -101,11 +163,6 @@ pub fn normalizePath(allocator: std.mem.Allocator, path: []const u8) (error{Inva
     if (path_builder.items.len == 0)
         return try allocator.dupe(u8, ".");
 
-    // if (path_builder.items.len == 1) {
-    //     std.debug.print("PATH ITEM: '{s}', with align: {}\n", .{ path_builder.items[0], @alignOf(@TypeOf(path_builder.items)) });
-    //     return try allocator.dupe(u8, path_builder.items[0]);
-    // }
-
     return try std.mem.join(allocator, "/", path_builder.items);
 }
 
@@ -125,9 +182,26 @@ pub fn basename(path: []const u8) []const u8 {
 }
 
 pub fn popFileExt(path: []const u8) []const u8 {
-    var parts = std.mem.splitBackwardsAny(u8, path, ".");
+    var parts = std.mem.splitBackwardsScalar(u8, path, '.');
     _ = parts.next();
     return parts.rest();
+}
+
+pub fn isFavicon(path: []const u8) bool {
+    return std.mem.eql(u8, basename(path), "favicon.ico");
+}
+
+pub fn isHtml(path: []const u8) bool {
+    return std.mem.endsWith(u8, path, ".html") or std.mem.endsWith(u8, path, ".htm");
+}
+
+pub fn isEntry(entries: []const []const u8, path: []const u8) bool {
+    const name = basename(path);
+    for (entries) |entry| {
+        if (std.mem.eql(u8, entry, name))
+            return true;
+    }
+    return false;
 }
 
 pub fn getMimeType(allocator: std.mem.Allocator, filename: []const u8) errhandl.AllocError![]const u8 {
