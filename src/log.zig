@@ -106,61 +106,11 @@ pub const LogType = enum {
             .err => style ++ RED ++ "[err]: ",
             .warn => style ++ YELLOW ++ "[warning]: ",
             .ok => style ++ GREEN ++ "[ok]: ",
-            .info => "[INFO]: ",
+            .info => "[info]: ",
         };
 
         return prefix ++ msg ++ CLEAR;
     }
 };
-
-// pub fn fatal(msg: []const u8) noreturn {
-//     if (!loglevel.includes(.fatal)) return;
-//
-//     _ = std.io.getStdOut().writer().write(RED ++ "[fatal]: " ++ msg ++ CLEAR) catch {};
-//     std.process.exit(1);
-// }
-//
-// pub fn fatalPrint(comptime fmt: []const u8, args: anytype) noreturn {
-//     if (!loglevel.includes(.fatal)) return;
-//
-//     std.io.getStdOut().writer().print(RED ++ "[fatal]: " ++ fmt ++ CLEAR, args) catch {};
-//     std.process.exit(1);
-// }
-//
-// pub fn err(msg: []const u8) void {
-//     if (!loglevel.includes(.err)) return;
-//
-//     _ = std.io.getStdOut().writer().write(RED ++ "[error]: " ++ msg ++ CLEAR) catch {};
-// }
-//
-// pub fn errPrint(comptime fmt: []const u8, args: anytype) void {
-//     if (!loglevel.includes(.err)) return;
-//
-//     std.io.getStdOut().writer().print(RED ++ "[error]: " ++ fmt ++ CLEAR, args) catch {};
-// }
-//
-// pub fn warn(msg: []const u8) void {
-//     if (!loglevel.includes(.warn)) return;
-//
-//     _ = std.io.getStdOut().writer().write(YELLOW ++ "[warning]: " ++ msg ++ CLEAR) catch {};
-// }
-//
-// pub fn warnPrint(comptime fmt: []const u8, args: anytype) void {
-//     if (!loglevel.includes(.warn)) return;
-//
-//     std.io.getStdOut().writer().print(YELLOW ++ "[warning]: " ++ fmt ++ CLEAR, args) catch {};
-// }
-//
-// pub fn ok(msg: []const u8) void {
-//     if (!loglevel.includes(.info)) return;
-//
-//     _ = std.io.getStdOut().writer().write(GREEN ++ "[ok]: " ++ msg ++ CLEAR) catch {};
-// }
-//
-// pub fn okPrint(comptime fmt: []const u8, args: anytype) void {
-//     if (!loglevel.includes(.info)) return;
-//
-//     std.io.getStdOut().writer().print(GREEN ++ "[ok]: " ++ fmt ++ CLEAR, args) catch {};
-// }
 
 const std = @import("std");
