@@ -1,7 +1,8 @@
 const params = clap.parseParamsComptime(
     \\-h, --help                        Display this help page and exits
     \\-v, --version                     Display this programs version and exit
-    \\-d, --dir         <path>          Specify the path to the directory to serve from, defaults to cwd
+    \\-d, --dir         <path>          Specify the path to the directory to serve from, defaults to ./serve/, or cwd if ./serve/ doesn't exist
+    \\-g, --global      <path>          Specify the path to the directory that holds global files, like global.css, defaults to ./global/, or cwd if ./global/ doesn't exist
     \\-b, --bind        <address>       Specify the address to bind to, defaults to 127.0.0.1
     \\-r, --port-range  <range>         Specify the range of ports to try to connect to, defaults to 8000-9000
     \\-p, --port        <port>          Specify the port to use, this will make the program crash if the port is already in use
