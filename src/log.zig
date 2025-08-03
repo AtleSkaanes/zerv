@@ -38,6 +38,14 @@ pub fn printVerbose(comptime logtype: LogType, comptime fmt: []const u8, args: a
         std.process.exit(1);
 }
 
+pub fn todo(comptime src: std.builtin.SourceLocation, comptime fmt: []const u8, args: anytype) noreturn {
+    std.io.getStdErr().writer().print(
+        RED ++ "[todo] in {s}.{s} in {s}:{}:{}:\n" ++ fmt ++ CLEAR,
+        .{ src.module, src.fn_name, src.file, src.line, src.column } ++ args,
+    ) catch {};
+    std.process.exit(1);
+}
+
 pub fn LogStream(comptime logtype: LogType, is_verbose: bool) type {
     const print_func = if (is_verbose) printVerbose else print;
     const write_func = if (is_verbose) writeVerbose else write;
