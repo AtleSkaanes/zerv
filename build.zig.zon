@@ -41,8 +41,8 @@
             .hash = "clap-0.10.0-oBajB7jkAQAZ4cKLlzkeV9mDu2yGZvtN2QuOyfAfjBij",
         },
         .smed = .{
-            .url = "git+https://github.com/AtleSkaanes/smed#935bc68cb2196e5f5d621568e55fcf8c50573c93",
-            .hash = "smed-0.0.1-wS7yQOdQAACNtJwFetpTrQ23-xJ3ooIMK1NtAbWGSBHo",
+            .url = "git+https://github.com/AtleSkaanes/smed#91786fb91aaec0d4d0c0388e16b0e75c1e607d6b",
+            .hash = "smed-0.0.1-wS7yQPpUAACOkuGBnmH5_uUjZgAQpfOREutEnkNucwHT",
         },
     },
     .paths = .{

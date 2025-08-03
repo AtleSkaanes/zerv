@@ -71,7 +71,6 @@ pub fn preprocess(allocator: std.mem.Allocator, ctx: *const Ctx, conn: *const st
     // TODO: Check for exit codes
 
     return try allocator.dupe(u8, res.stdout);
-    // return try stdout.toOwnedSlice(allocator);
 }
 
 const Info = struct {
@@ -187,9 +186,7 @@ const Info = struct {
 
         const transform_code: [:0]const u8 = @embedFile("./lua/transform_info.luau");
 
-        smed.lua.doString(transform_code) catch {
-            std.debug.print("ERROR: {s}\n", .{try smed.lua.toString(-1)});
-        };
+        try smed.runRawLuauStr(transform_code);
     }
 };
 
