@@ -63,6 +63,7 @@ queryparams: std.StringHashMap([]const u8),
 protocol: Protocol,
 headers: std.StringHashMap([]const u8),
 body: []const u8,
+raw_req: []const u8,
 
 pub const ParseError = error{
     InvalidPart,
@@ -126,6 +127,7 @@ pub fn parse(allocator: std.mem.Allocator, str: []const u8) ParseError!Self {
         .protocol = protocol,
         .headers = headers,
         .body = body,
+        .raw_req = try allocator.dupe(u8, str),
     };
 }
 
@@ -177,7 +179,7 @@ fn trim(str: []const u8) []const u8 {
     return std.mem.trim(u8, str, " \r\n");
 }
 
-fn freeHashMap(allocator: std.mem.Allocator, map: *std.StringHashMap([]const u8)) void {
+pub fn freeHashMap(allocator: std.mem.Allocator, map: *std.StringHashMap([]const u8)) void {
     var key_iter = map.keyIterator();
     while (key_iter.next()) |key| {
         allocator.free(key.*);
@@ -195,6 +197,7 @@ pub fn deinit(self: *Self) void {
 
     self.allocator.free(self.path);
     self.allocator.free(self.body);
+    self.allocator.free(self.raw_req);
 }
 
 const std = @import("std");

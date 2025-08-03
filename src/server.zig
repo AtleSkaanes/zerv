@@ -67,7 +67,9 @@ fn serveFile(ctx: *const Ctx, request: *const HttpData, conn: *const std.net.Ser
     };
     defer fileres.deinit();
 
-    const content = try fileres.got.file.readToEndAlloc(ctx.allocator, 10_000_000_000);
+    // const content = try fileres.got.file.readToEndAlloc(ctx.allocator, 10_000_000_000);
+    const content = try prep.preprocess(ctx.allocator, ctx, conn, request, fileres.got);
+    defer ctx.allocator.free(content);
 
     const response = blk: {
         if (fileres.redirected) |location| {
@@ -128,7 +130,7 @@ fn createHttpResponse200(allocator: std.mem.Allocator, mimetype: []const u8, bod
 fn createHttpResponse301(allocator: std.mem.Allocator, location: []const u8, mimetype: []const u8, body: []const u8) errhandl.AllocError![]u8 {
     return std.fmt.allocPrint(allocator,
         \\HTTP/1.1 301 Moved Permanently 
-        \\Location: /{s}
+        \\Location: {s}
         \\Content-Type: {s}
         \\Content-Length: {}
         \\
@@ -140,5 +142,6 @@ const std = @import("std");
 const log = @import("log.zig");
 const errhandl = @import("errhandl.zig");
 const fs = @import("fs.zig");
+const prep = @import("prep.zig");
 const HttpData = @import("http/HttpData.zig");
 const Ctx = @import("ctx/Ctx.zig");

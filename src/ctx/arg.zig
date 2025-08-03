@@ -1,14 +1,19 @@
 const params = clap.parseParamsComptime(
-    \\-h, --help                        Display this help page and exits
+    \\-h, --help                        Display this help page and exit
     \\-v, --version                     Display this programs version and exit
-    \\-d, --dir         <path>          Specify the path to the directory to serve from, defaults to ./serve/, or cwd if ./serve/ doesn't exist
-    \\-g, --global      <path>          Specify the path to the directory that holds global files, like global.css, defaults to ./global/, or cwd if ./global/ doesn't exist
-    \\-b, --bind        <address>       Specify the address to bind to, defaults to 127.0.0.1
-    \\-r, --port-range  <range>         Specify the range of ports to try to connect to, defaults to 8000-9000
-    \\-p, --port        <port>          Specify the port to use, this will make the program crash if the port is already in use
-    \\-e, --entry       <str>...        Specify the entry files to look for, if no direct path is used, defaults to 'index.html'
-    \\-l, --log         <loglevel>      Specify the log level (none, fatal, err, warn, info (default), verbose)
-    \\--max-bytes       <bytes>         Specify the max amount of bytes allowed in incoming http requests, defaults to 8192 bytes
+    \\-d, --dir           <path>        Specify the path to the directory to serve from, defaults to ./serve/, or cwd if ./serve/ doesn't exist
+    \\-g, --global        <path>        Specify the path to the directory that holds global files, like global.css, defaults to ./global/, or cwd if ./global/ doesn't exist
+    \\-b, --bind          <address>     Specify the address to bind to, defaults to 127.0.0.1
+    \\-r, --port-range    <range>       Specify the range of ports to try to connect to, defaults to 8000-9000
+    \\-p, --port          <port>        Specify the port to use, this will make the program crash if the port is already in use
+    \\-e, --entry         <str>...      Specify the entry files to look for, if no direct path is used, defaults to 'index.html'
+    \\-l, --log           <loglevel>    Specify the log level (none, fatal, err, warn, info (default), verbose)
+    \\--preproc           <preproc>     Specify the preprocessor to use on HTML files (none (default), c, m4, smed), use --preproc-help for details
+    \\--c-preproc-cmd     <cmd>...      Specify The command to invoke for the c preprocessor, defaults to `cpp -P`
+    \\--m4-preproc-cmd    <cmd>...      Specify The command to invoke for the m4 preprocessor, defaults to `m4`
+    \\--smed-preproc-cmd  <cmd>...      Specify The command to invoke for the m4 preprocessor, defaults to the smed library
+    \\--preproc-help                    Display a help page for preprocessors and exit
+    \\--max-bytes         <bytes>       Specify the max amount of bytes allowed in incoming http requests, defaults to 8192 bytes
 );
 
 pub const ParseError = error{ParseError} || errhandl.AllocError;
@@ -39,11 +44,13 @@ pub fn parseArgs(allocator: std.mem.Allocator) ParseError!ArgRes {
 const parsers = .{
     .path = parse_dir,
     .range = parse_range,
-    .port = clap.parsers.int(u16, 0),
     .address = parse_address,
     .str = clap.parsers.string,
+    .cmd = clap.parsers.string,
+    .port = clap.parsers.int(u16, 0),
     .bytes = clap.parsers.int(usize, 0),
     .loglevel = clap.parsers.enumeration(log.LogLevel),
+    .preproc = clap.parsers.enumeration(prep.Preproc),
 };
 
 fn parse_range(in: []const u8) !Ctx.PortRange {
@@ -73,6 +80,7 @@ fn parse_dir(in: []const u8) std.fs.File.OpenError!std.fs.Dir {
 const std = @import("std");
 const errhandl = @import("../errhandl.zig");
 const log = @import("../log.zig");
+const prep = @import("../prep.zig");
 const Ctx = @import("Ctx.zig");
 
 const clap = @import("clap");

@@ -2,13 +2,16 @@ pub const File = struct {
     const Self = @This();
 
     allocator: std.mem.Allocator,
+    is_global: bool,
     name: []const u8,
     mimetype: []const u8,
+    path: []const u8,
     file: std.fs.File,
 
     pub fn deinit(self: Self) void {
         self.allocator.free(self.name);
         self.allocator.free(self.mimetype);
+        self.allocator.free(self.path);
         self.file.close();
     }
 };
@@ -56,8 +59,10 @@ pub fn getFile(allocator: std.mem.Allocator, ctx: *const Ctx, path: []const u8) 
             return .{
                 .got = .{
                     .allocator = allocator,
+                    .is_global = is_global,
                     .name = try allocator.dupe(u8, f_name),
                     .mimetype = try getMimeType(allocator, f_name),
+                    .path = try pushPath(allocator, get_path, f_name),
                     .file = f,
                 },
                 .redirected = null,
@@ -80,8 +85,10 @@ pub fn getFile(allocator: std.mem.Allocator, ctx: *const Ctx, path: []const u8) 
         return .{
             .got = .{
                 .allocator = allocator,
+                .is_global = is_global,
                 .name = try allocator.dupe(u8, f_name),
                 .mimetype = try getMimeType(allocator, f_name),
+                .path = try allocator.dupe(u8, get_path),
                 .file = f,
             },
             .redirected = redir_path,
@@ -119,8 +126,10 @@ pub fn getFile(allocator: std.mem.Allocator, ctx: *const Ctx, path: []const u8) 
                 return .{
                     .got = .{
                         .allocator = allocator,
+                        .is_global = is_global,
                         .name = try allocator.dupe(u8, entry.basename),
                         .mimetype = try getMimeType(allocator, entry.basename),
+                        .path = try pushPath(allocator, new_path, entry.basename),
                         .file = f,
                     },
                     .redirected = redir_path,
@@ -174,6 +183,17 @@ pub fn popPath(path: []const u8) ?[]const u8 {
         return null;
 
     return parts.rest();
+}
+
+pub fn pushPath(allocator: std.mem.Allocator, path: []const u8, part: []const u8) errhandl.AllocError![]u8 {
+    var path_builder = std.ArrayList(u8).init(allocator);
+    defer path_builder.deinit();
+
+    try path_builder.appendSlice(path);
+    try path_builder.append('/');
+    try path_builder.appendSlice(part);
+
+    return try path_builder.toOwnedSlice();
 }
 
 pub fn basename(path: []const u8) []const u8 {
