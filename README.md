@@ -7,7 +7,7 @@
 To install, clone the repo
 
 ```sh
-$ git clone https//github.com/AtleSkaanes/zerv
+$ git clone https://github.com/AtleSkaanes/zerv
 $ cd zerv
 ```
 
