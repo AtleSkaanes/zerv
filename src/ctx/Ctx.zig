@@ -5,6 +5,7 @@ allocator: std.mem.Allocator,
 
 dir: std.fs.Dir,
 global_dir: std.fs.Dir,
+api_dir: ?std.fs.Dir,
 addr: std.net.Address,
 port_range: ?PortRange,
 max_bytes: usize,
@@ -20,6 +21,8 @@ pub fn fromArgs(allocator: std.mem.Allocator, args: arg.ArgRes) errhandl.AllocEr
     const global_dir: std.fs.Dir = args.args.global orelse blk: {
         break :blk std.fs.cwd().openDir("./global", .{}) catch std.fs.cwd();
     };
+
+    const api_dir: ?std.fs.Dir = args.args.api;
 
     var port_range: ?PortRange = args.args.@"port-range" orelse .{ .from = 8000, .to = 9000 };
     // ignore --port-range if --port is supplied
@@ -70,6 +73,7 @@ pub fn fromArgs(allocator: std.mem.Allocator, args: arg.ArgRes) errhandl.AllocEr
         .allocator = allocator,
         .dir = dir,
         .global_dir = global_dir,
+        .api_dir = api_dir,
         .addr = addr,
         .port_range = port_range,
         .max_bytes = max_bytes,
@@ -86,6 +90,10 @@ pub fn fromArgs(allocator: std.mem.Allocator, args: arg.ArgRes) errhandl.AllocEr
 pub fn deinit(self: *Self) void {
     self.dir.close();
     self.global_dir.close();
+
+    if (self.api_dir) |*dir| {
+        dir.close();
+    }
 
     for (self.entries) |entry| {
         self.allocator.free(entry);
