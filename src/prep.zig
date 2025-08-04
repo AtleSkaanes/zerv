@@ -20,15 +20,25 @@ pub fn preprocess(allocator: std.mem.Allocator, ctx: *const Ctx, conn: *const st
     const dir = if (file.is_global) ctx.global_dir else ctx.dir;
     const real_path = try dir.realpathAlloc(allocator, file.path);
 
+    var info = try Info.init(allocator, ctx, conn, req, file.path);
+    defer info.deinit(allocator);
+
     const preproc_args = switch (preproc) {
-        .c => ctx.preproc_cmd.c,
-        .m4 => ctx.preproc_cmd.m4,
+        .c => c_args: {
+            const info_args = try info.toCppArgs(allocator);
+            defer freeNested(allocator, info_args);
+
+            break :c_args try concatArgs(allocator, ctx.preproc_cmd.c, info_args);
+        },
+        .m4 => m4_args: {
+            const info_args = try info.toCppArgs(allocator);
+            defer freeNested(allocator, info_args);
+
+            break :m4_args try concatArgs(allocator, ctx.preproc_cmd.m4, info_args);
+        },
         .smed => {
             var smed = try libsmed.Smed.init(allocator);
             defer smed.deinit();
-
-            var info = try Info.init(allocator, ctx, conn, req, file.path);
-            defer info.deinit(allocator);
 
             try info.injectToSmed(&smed);
 
@@ -42,6 +52,7 @@ pub fn preprocess(allocator: std.mem.Allocator, ctx: *const Ctx, conn: *const st
             return try file.file.readToEndAlloc(ctx.allocator, max_read_bytes);
         },
     };
+    defer freeNested(allocator, preproc_args);
 
     var args = try std.ArrayList([]const u8).initCapacity(
         allocator,
@@ -50,9 +61,6 @@ pub fn preprocess(allocator: std.mem.Allocator, ctx: *const Ctx, conn: *const st
     defer args.deinit();
     try args.appendSlice(preproc_args);
     try args.append(real_path);
-    const ip = try std.fmt.allocPrint(allocator, "-DINTERNAL_IP={}", .{conn.address});
-    defer allocator.free(ip);
-    try args.append(ip);
 
     const res = std.process.Child.run(.{ .allocator = allocator, .argv = args.items }) catch |err| {
         const command = try std.mem.join(allocator, " ", args.items);
@@ -85,7 +93,7 @@ const Info = struct {
         server_port: u16,
     },
     request: struct {
-        query_params: []const KeyValEntry,
+        queryparams: []const KeyValEntry,
         headers: []const KeyValEntry,
         path: []const u8,
         full_req: []const u8,
@@ -112,12 +120,12 @@ const Info = struct {
         defer allocator.free(server_addr);
         var server_ip = std.mem.splitScalar(u8, server_addr, ':');
 
-        var query_params = std.ArrayList(KeyValEntry).init(allocator);
-        defer query_params.deinit();
+        var queryparams = std.ArrayList(KeyValEntry).init(allocator);
+        defer queryparams.deinit();
         var query_iter = req.queryparams.iterator();
 
         while (query_iter.next()) |param| {
-            try query_params.append(.{
+            try queryparams.append(.{
                 .key = try allocator.dupe(u8, param.key_ptr.*),
                 .val = try allocator.dupe(u8, param.value_ptr.*),
             });
@@ -142,7 +150,7 @@ const Info = struct {
                 .server_port = ctx.addr.getPort(),
             },
             .request = .{
-                .query_params = try query_params.toOwnedSlice(),
+                .queryparams = try queryparams.toOwnedSlice(),
                 .headers = try headers.toOwnedSlice(),
                 .path = try allocator.dupe(u8, req.path),
                 .full_req = try allocator.dupe(u8, req.raw_req),
@@ -170,7 +178,7 @@ const Info = struct {
         allocator.free(self.paths.global_dir);
         allocator.free(self.paths.current_file);
 
-        for (self.request.query_params) |param| {
+        for (self.request.queryparams) |param| {
             allocator.free(param.key);
             allocator.free(param.val);
         }
@@ -188,7 +196,72 @@ const Info = struct {
 
         try smed.runRawLuauStr(transform_code);
     }
+
+    pub fn toCppArgs(self: Self, allocator: std.mem.Allocator) errhandl.AllocError![][]const u8 {
+        var arg_builder = std.ArrayList([]const u8).init(allocator);
+        defer arg_builder.deinit();
+
+        const print = std.fmt.allocPrint;
+
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        defer {
+            _ = arena.reset(.free_all);
+            arena.deinit();
+        }
+
+        const a = arena.allocator();
+
+        try arg_builder.append(try print(allocator, "-DINFO_CONN_CLIENT_IP={s}", .{try fixCppValue(a, self.conn.client_ip)}));
+        try arg_builder.append(try print(allocator, "-DINFO_CONN_CLIENT_PORT={}", .{self.conn.client_port}));
+        try arg_builder.append(try print(allocator, "-DINFO_CONN_SERVER_IP={s}", .{try fixCppValue(a, self.conn.server_ip)}));
+        try arg_builder.append(try print(allocator, "-DINFO_CONN_SERVER_PORT={}", .{self.conn.server_port}));
+        try arg_builder.append(try print(allocator, "-DINFO_REQUEST_PATH=\"{s}\"", .{try fixCppValue(a, self.request.path)}));
+        try arg_builder.append(try print(allocator, "-DINFO_REQUEST_FULL_REQ=\"{s}\"", .{try fixCppValue(a, self.request.full_req)}));
+        try arg_builder.append(try print(allocator, "-DINFO_REQUEST_METHOD=\"{s}\"", .{try fixCppValue(a, self.request.method)}));
+        try arg_builder.append(try print(allocator, "-DINFO_REQUEST_BODY=\"{s}\"", .{try fixCppValue(a, self.request.body)}));
+        try arg_builder.append(try print(allocator, "-DINFO_PATHS_SERVE_DIR=\"{s}\"", .{try fixCppValue(a, self.paths.serve_dir)}));
+        try arg_builder.append(try print(allocator, "-DINFO_PATHS_GLOBAL_DIR=\"{s}\"", .{try fixCppValue(a, self.paths.global_dir)}));
+        try arg_builder.append(try print(allocator, "-DINFO_PATHS_CURRENT_FILE=\"{s}\"", .{try fixCppValue(a, self.paths.current_file)}));
+
+        // TODO: Fix identifiers:
+        // - Make illigal identifiers legal. E.g. ' ' => '_'
+        // - Make identifiers screaming snake case to fit style
+        // Applies to both queryparams and headers
+        for (self.request.queryparams) |param| {
+            try arg_builder.append(try print(allocator, "-DINFO_REQUEST_QUERYPARAM_{s}={s}", .{ param.key, param.val }));
+        }
+        for (self.request.headers) |header| {
+            try arg_builder.append(try print(allocator, "-DINFO_REQUEST_HEADER_{s}={s}", .{ header.key, header.val }));
+        }
+
+        return try arg_builder.toOwnedSlice();
+    }
 };
+
+fn concatArgs(allocator: std.mem.Allocator, rhs: []const []const u8, lhs: []const []const u8) errhandl.AllocError![][]const u8 {
+    var arg_builder = try std.ArrayList([]const u8).initCapacity(allocator, rhs.len + lhs.len);
+    defer arg_builder.deinit();
+
+    for (rhs) |arg| {
+        try arg_builder.append(try allocator.dupe(u8, arg));
+    }
+    for (lhs) |arg| {
+        try arg_builder.append(try allocator.dupe(u8, arg));
+    }
+
+    return try arg_builder.toOwnedSlice();
+}
+
+fn freeNested(allocator: std.mem.Allocator, slices: []const []const u8) void {
+    for (slices) |slice| {
+        allocator.free(slice);
+    }
+    allocator.free(slices);
+}
+
+fn fixCppValue(allocator: std.mem.Allocator, str: []const u8) errhandl.AllocError![]u8 {
+    return try std.mem.replaceOwned(u8, allocator, str, "\r\n", "<br>");
+}
 
 const std = @import("std");
 const log = @import("log.zig");
