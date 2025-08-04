@@ -94,7 +94,9 @@ const Info = struct {
     },
     request: struct {
         queryparams: []const KeyValEntry,
+        raw_queryparams: []const u8,
         headers: []const KeyValEntry,
+        raw_headers: []const u8,
         path: []const u8,
         full_req: []const u8,
         method: []const u8,
@@ -131,6 +133,8 @@ const Info = struct {
             });
         }
 
+        const raw_queryparams = if (req.raw_queryparams) |q| try allocator.dupe(u8, q) else null;
+
         var headers = std.ArrayList(KeyValEntry).init(allocator);
         defer headers.deinit();
         var header_iter = req.headers.iterator();
@@ -151,7 +155,9 @@ const Info = struct {
             },
             .request = .{
                 .queryparams = try queryparams.toOwnedSlice(),
+                .raw_queryparams = raw_queryparams,
                 .headers = try headers.toOwnedSlice(),
+                .raw_headers = try allocator.dupe(u8, req.raw_headers),
                 .path = try allocator.dupe(u8, req.path),
                 .full_req = try allocator.dupe(u8, req.raw_req),
                 .method = try allocator.dupe(u8, @tagName(req.method)),
@@ -169,6 +175,8 @@ const Info = struct {
         allocator.free(self.conn.client_ip);
         allocator.free(self.conn.server_ip);
 
+        allocator.free(self.request.raw_queryparams);
+        allocator.free(self.request.raw_headers);
         allocator.free(self.request.path);
         allocator.free(self.request.full_req);
         allocator.free(self.request.method);
@@ -215,6 +223,8 @@ const Info = struct {
         try arg_builder.append(try print(allocator, "-DINFO_CONN_CLIENT_PORT={}", .{self.conn.client_port}));
         try arg_builder.append(try print(allocator, "-DINFO_CONN_SERVER_IP={s}", .{try fixCppValue(a, self.conn.server_ip)}));
         try arg_builder.append(try print(allocator, "-DINFO_CONN_SERVER_PORT={}", .{self.conn.server_port}));
+        try arg_builder.append(try print(allocator, "-DINFO_REQUEST_RAW_QUERYPARAMS=\"{s}\"", .{try fixCppValue(a, self.request.raw_queryparams)}));
+        try arg_builder.append(try print(allocator, "-DINFO_REQUEST_RAW_HEADERS=\"{s}\"", .{try fixCppValue(a, self.request.raw_headers)}));
         try arg_builder.append(try print(allocator, "-DINFO_REQUEST_PATH=\"{s}\"", .{try fixCppValue(a, self.request.path)}));
         try arg_builder.append(try print(allocator, "-DINFO_REQUEST_FULL_REQ=\"{s}\"", .{try fixCppValue(a, self.request.full_req)}));
         try arg_builder.append(try print(allocator, "-DINFO_REQUEST_METHOD=\"{s}\"", .{try fixCppValue(a, self.request.method)}));

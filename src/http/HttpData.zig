@@ -60,8 +60,10 @@ allocator: std.mem.Allocator,
 method: Method,
 path: []const u8,
 queryparams: std.StringHashMap([]const u8),
+raw_queryparams: ?[]const u8,
 protocol: Protocol,
 headers: std.StringHashMap([]const u8),
+raw_headers: []const u8,
 body: []const u8,
 raw_req: []const u8,
 
@@ -95,8 +97,10 @@ pub fn parse(allocator: std.mem.Allocator, str: []const u8) ParseError!Self {
     const path_str = access_parts.first();
     const path = try fs.normalizePath(allocator, path_str);
 
+    const raw_queryparams = if (access_parts.next()) |q| try allocator.dupe(u8, q) else null;
+
     var queryparams = std.StringHashMap([]const u8).init(allocator);
-    if (access_parts.next()) |query| {
+    if (raw_queryparams) |query| {
         try parseQueryParams(&queryparams, query);
     }
 
@@ -104,11 +108,15 @@ pub fn parse(allocator: std.mem.Allocator, str: []const u8) ParseError!Self {
     const protocol = try Protocol.fromStr(protocol_str);
 
     var headers = std.StringHashMap([]const u8).init(allocator);
+    var raw_headers = std.ArrayList(u8).init(allocator);
+    defer raw_headers.deinit();
 
     while (lines.next()) |line| {
         const line_str = trim(line);
         if (line_str.len == 0)
             break;
+
+        try raw_headers.append(try allocator.dupe(line_str));
 
         var parts = std.mem.splitScalar(u8, line_str, ':');
         const key = parts.next() orelse return error.InvalidHeader;
@@ -124,8 +132,10 @@ pub fn parse(allocator: std.mem.Allocator, str: []const u8) ParseError!Self {
         .method = method,
         .path = path,
         .queryparams = queryparams,
+        .raw_queryparams = raw_queryparams,
         .protocol = protocol,
         .headers = headers,
+        .raw_headers = try std.mem.join(allocator, "\n", raw_headers.items),
         .body = body,
         .raw_req = try allocator.dupe(u8, str),
     };
