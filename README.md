@@ -2,6 +2,10 @@
 
 > A short and simple web server written in Zig.
 
+# !!WARNING!!
+
+This is not a finished project, and may feature breaking bugs
+
 ## Installation
 
 To install, clone the repo
