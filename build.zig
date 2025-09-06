@@ -21,6 +21,9 @@ pub fn build(b: *std.Build) void {
     const smed = b.dependency("smed", .{});
     exe.root_module.addImport("libsmed", smed.module("libsmed"));
 
+    const zlua = smed.builder.dependency("zlua", .{});
+    exe.root_module.addImport("zlua", zlua.module("zlua"));
+
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);

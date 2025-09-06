@@ -108,7 +108,7 @@ pub fn parse(allocator: std.mem.Allocator, str: []const u8) ParseError!Self {
     const protocol = try Protocol.fromStr(protocol_str);
 
     var headers = std.StringHashMap([]const u8).init(allocator);
-    var raw_headers = std.ArrayList(u8).init(allocator);
+    var raw_headers = std.ArrayList([]const u8).init(allocator);
     defer raw_headers.deinit();
 
     while (lines.next()) |line| {
@@ -116,7 +116,7 @@ pub fn parse(allocator: std.mem.Allocator, str: []const u8) ParseError!Self {
         if (line_str.len == 0)
             break;
 
-        try raw_headers.append(try allocator.dupe(line_str));
+        try raw_headers.append(try allocator.dupe(u8, line_str));
 
         var parts = std.mem.splitScalar(u8, line_str, ':');
         const key = parts.next() orelse return error.InvalidHeader;

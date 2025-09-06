@@ -42,10 +42,15 @@ pub fn preprocess(allocator: std.mem.Allocator, ctx: *const Ctx, conn: *const st
 
             try info.injectToSmed(&smed);
 
+            var api = Api.init(allocator);
+            api.commands = &.{}; // Make the compiler shut up about mutation
+            try smed.addGlobal(api, "api");
+
             const content = try file.file.readToEndAlloc(ctx.allocator, max_read_bytes);
             defer allocator.free(content);
 
             const out = try smed.evalStr(content);
+
             return out;
         },
         .none => {
@@ -94,7 +99,7 @@ const Info = struct {
     },
     request: struct {
         queryparams: []const KeyValEntry,
-        raw_queryparams: []const u8,
+        raw_queryparams: ?[]const u8,
         headers: []const KeyValEntry,
         raw_headers: []const u8,
         path: []const u8,
@@ -175,7 +180,6 @@ const Info = struct {
         allocator.free(self.conn.client_ip);
         allocator.free(self.conn.server_ip);
 
-        allocator.free(self.request.raw_queryparams);
         allocator.free(self.request.raw_headers);
         allocator.free(self.request.path);
         allocator.free(self.request.full_req);
@@ -185,6 +189,9 @@ const Info = struct {
         allocator.free(self.paths.serve_dir);
         allocator.free(self.paths.global_dir);
         allocator.free(self.paths.current_file);
+
+        if (self.request.raw_queryparams) |query|
+            allocator.free(query);
 
         for (self.request.queryparams) |param| {
             allocator.free(param.key);
@@ -223,7 +230,6 @@ const Info = struct {
         try arg_builder.append(try print(allocator, "-DINFO_CONN_CLIENT_PORT={}", .{self.conn.client_port}));
         try arg_builder.append(try print(allocator, "-DINFO_CONN_SERVER_IP={s}", .{try fixCppValue(a, self.conn.server_ip)}));
         try arg_builder.append(try print(allocator, "-DINFO_CONN_SERVER_PORT={}", .{self.conn.server_port}));
-        try arg_builder.append(try print(allocator, "-DINFO_REQUEST_RAW_QUERYPARAMS=\"{s}\"", .{try fixCppValue(a, self.request.raw_queryparams)}));
         try arg_builder.append(try print(allocator, "-DINFO_REQUEST_RAW_HEADERS=\"{s}\"", .{try fixCppValue(a, self.request.raw_headers)}));
         try arg_builder.append(try print(allocator, "-DINFO_REQUEST_PATH=\"{s}\"", .{try fixCppValue(a, self.request.path)}));
         try arg_builder.append(try print(allocator, "-DINFO_REQUEST_FULL_REQ=\"{s}\"", .{try fixCppValue(a, self.request.full_req)}));
@@ -232,6 +238,10 @@ const Info = struct {
         try arg_builder.append(try print(allocator, "-DINFO_PATHS_SERVE_DIR=\"{s}\"", .{try fixCppValue(a, self.paths.serve_dir)}));
         try arg_builder.append(try print(allocator, "-DINFO_PATHS_GLOBAL_DIR=\"{s}\"", .{try fixCppValue(a, self.paths.global_dir)}));
         try arg_builder.append(try print(allocator, "-DINFO_PATHS_CURRENT_FILE=\"{s}\"", .{try fixCppValue(a, self.paths.current_file)}));
+
+        if (self.request.raw_queryparams) |query| {
+            try arg_builder.append(try print(allocator, "-DINFO_REQUEST_RAW_QUERYPARAMS=\"{s}\"", .{try fixCppValue(a, query)}));
+        }
 
         // TODO: Fix identifiers:
         // - Make illigal identifiers legal. E.g. ' ' => '_'
@@ -245,6 +255,104 @@ const Info = struct {
         }
 
         return try arg_builder.toOwnedSlice();
+    }
+};
+
+pub const ApiCommand = struct { cmd: CommandType, data: ?[]const u8 };
+pub const CommandType = enum {
+    redirect,
+    return_forbidden,
+    add_header_key,
+    add_header_val,
+};
+
+pub const Api = struct {
+    const Self = @This();
+
+    allocator: std.mem.Allocator,
+
+    return_mimetype: ?[]const u8,
+    commands: []ApiCommand,
+
+    // api: struct {
+    //     set_mimetype: fn (self: *Self, mimetype: ?[]const u8) void = setMimetype,
+    //     redirect: fn (self: *Self, to: []const u8) void = redirect,
+    //     return_forbidden: fn (self: *Self) void = returnForbidden,
+    //     add_header: fn (self: *Self, key: []const u8, value: []const u8) void = addHeader,
+    // },
+
+    pub fn init(allocator: std.mem.Allocator) Self {
+        return Self{
+            .allocator = allocator,
+            .return_mimetype = null,
+            .commands = &.{},
+            // .api = .{},
+        };
+    }
+
+    pub fn deinit(self: Self) void {
+        if (self.return_mimetype) |mimetype|
+            self.allocator.free(mimetype);
+
+        for (self.commands) |cmd| {
+            if (cmd.data) |data|
+                self.allocator.free(data);
+        }
+        self.allocator.free(self.commands);
+    }
+
+    pub fn toLua(self: Self, lua: *zlua.Lua) !void {
+        lua.newTable();
+
+        lua.autoPushFunction(self.setMimetype);
+        lua.setField(-1, "set_mimetype");
+
+        lua.autoPushFunction(self.redirect);
+        lua.setField(-1, "redirect");
+
+        lua.autoPushFunction(self.returnForbidden);
+        lua.setField(-1, "returnForbidden");
+
+        lua.autoPushFunction(self.addHeader);
+        lua.setField(-1, "add_header");
+    }
+
+    fn pushCommand(self: *Self, cmd: ApiCommand) errhandl.AllocError!void {
+        self.commands = try self.allocator.realloc(self.commands, self.commands.len + 1);
+        self.commands[self.commands.len - 1] = cmd;
+    }
+
+    fn setMimetype(self: *Self, mimetype: ?[]const u8) void {
+        self.return_mimetype = if (mimetype) |m|
+            self.allocator.dupe(u8, m) catch return
+        else
+            null;
+    }
+
+    fn redirect(self: *Self, to: []const u8) void {
+        self.pushCommand(.{
+            .cmd = .redirect,
+            .data = self.allocator.dupe(u8, to) catch return,
+        }) catch return;
+    }
+
+    fn returnForbidden(self: *Self) void {
+        self.pushCommand(.{
+            .cmd = .return_forbidden,
+            .data = null,
+        }) catch return;
+    }
+
+    fn addHeader(self: *Self, key: []const u8, value: []const u8) void {
+        self.pushCommand(.{
+            .cmd = .add_header_key,
+            .data = self.allocator.dupe(u8, key) catch return,
+        }) catch return;
+
+        self.pushCommand(.{
+            .cmd = .add_header_val,
+            .data = self.allocator.dupe(u8, value) catch return,
+        }) catch return;
     }
 };
 
@@ -281,3 +389,4 @@ const Ctx = @import("ctx/Ctx.zig");
 const HttpData = @import("http/HttpData.zig");
 
 const libsmed = @import("libsmed");
+const zlua = @import("zlua");

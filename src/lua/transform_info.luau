@@ -1,4 +1,4 @@
-local query_before = Smed.info.request.query_params
+local query_before = Smed.info.request.queryparams
 local headers_before = Smed.info.request.headers
 
 if query_before == nil or headers_before == nil then
@@ -19,5 +19,3 @@ end
 for _, value in ipairs(headers_before) do
     Smed.info.request.headers[value.key] = value.val
 end
-
-
