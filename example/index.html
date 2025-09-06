@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<link rel="stylesheet" href="global.base.css">
+<head>
+    <title>Hello!!!</title>
+</head>
+
+<body>
+<smed>
+    local full_req = Smed.info.request.full_req:gsub('\n', '<br>')
+        local function foo(a, b) return a .. ' ' .. b end
+        Smed.write(
+            Smed.h1(foo('HELLO', 'WORLD'), { class = "foo" }) ..
+            Smed.h3('IS THIS YOUR IP?') ..
+            Smed.bold(Smed.info.conn.client_ip) ..
+            '<hr>' ..
+            Smed.h3('IS THIS YOUR REQUEST?') ..
+            '<hr>' ..
+            Smed.div(
+            Smed.bold(full_req),
+                { class = "text-box" }
+            )
+        )
+</smed>
+</body>
+</html>
